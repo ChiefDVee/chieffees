@@ -11,6 +11,7 @@
     hashrate: "https://mempool.space/api/v1/mining/hashrate/3d",
     difficulty: "https://mempool.space/api/v1/difficulty-adjustment",
     prices: "https://mempool.space/api/v1/prices",
+    blocksList: "https://mempool.space/api/v1/blocks", // one-time fetch: seeds the "waiting" label on page load
   };
 
   const state = {
@@ -379,29 +380,46 @@
   // block fill, hammer speed and the block-found event itself never do.
 
   const LOGICAL_W = 240;
-  const LOGICAL_H = 64;
-  const SCENE_BAND_H = 46; // 0..46 = main scene, 46..64 = chain strip
+  const LOGICAL_H = 76; // taller than the main scene band alone needs, so the
+  // chain strip has real headroom below each height label — see CHAIN_Y below
+  const SCENE_BAND_H = 46; // 0..46 = main scene, 46..76 = chain strip
   const GROUND_Y = 44;
+  const GROUND_TEXTURE_H = SCENE_BAND_H - GROUND_Y;
   const BLOCK_GRID_COLS = 8;
   const BLOCK_GRID_ROWS = 6;
   const BLOCK_BOX = { x: 108, y: 6, w: 64, h: 36 };
   const CELL_W = BLOCK_BOX.w / BLOCK_GRID_COLS;
   const CELL_H = BLOCK_BOX.h / BLOCK_GRID_ROWS;
   const QUEUE_LANE = { xStart: 6, xEnd: 100 };
-  const FIGURE_SPACING = 3.2;
+  const FIGURE_SPACING = 5.5; // wide enough that individual sprites read as people, not a solid bar
   const MINER_COUNT = 4;
   const MINER_LANE = { xStart: BLOCK_BOX.x + BLOCK_BOX.w + 10, xEnd: LOGICAL_W - 8 };
-  const CHAIN_Y = 50;
+  const CHAIN_Y = 52;
   const CHAIN_ICON = 10;
   const CHAIN_SPACING = 22;
-  const CHAIN_RIGHT_X = LOGICAL_W - 16;
+  const CHAIN_RIGHT_X = LOGICAL_W - 30; // wide margin so a 6-digit height label never clips the canvas edge
   const MAX_CHAIN = 8;
   const WALK_DURATION_MS = 900;
+  const LEAVE_DURATION_MS = 500; // cosmetic walk-away-and-fade after delivery, decoupled from placement timing
   const FOUND_FLASH_MS = 180;
   const FOUND_SLIDE_MS = 420;
   const TIP_POLL_MS = 10000;
   const HASHRATE_SPEED_LO = 500; // EH/s -> slow hammer swing
   const HASHRATE_SPEED_HI = 1000; // EH/s -> frantic hammer swing
+  const IDLE_BOB_PERIOD_MS = 900;
+  const IMPATIENT_TAP_PERIOD_LO_MS = 700; // foot-tap cadence right as fill crosses the impatience threshold
+  const IMPATIENT_TAP_PERIOD_HI_MS = 350; // foot-tap cadence once escalated (far past the threshold)
+  const FILL_PCT_IMPATIENT_THRESHOLD = 95;
+
+  // Deterministic "dirt" pattern for the ground strip, computed once at
+  // script load (not per frame) — a simple integer hash, not Math.random,
+  // so it's cheap and stable across the whole session.
+  function groundHash(x) {
+    let h = (x * 2654435761) >>> 0;
+    h = (h ^ (h >>> 13)) >>> 0;
+    return h % 100;
+  }
+  const GROUND_PATTERN = Array.from({ length: LOGICAL_W }, (_, x) => groundHash(x) < 55);
 
   const scene = {
     canvas: null,
@@ -409,21 +427,26 @@
     off: null,
     offCtx: null,
     colors: null,
+    capColors: [],
     reducedMotion: false,
     running: false,
     rafId: null,
     lastFrameTime: 0,
     maxQueue: 30,
-    queue: [], // [{ tier: "high"|"low", walking, walkT }], front = index 0
+    queue: [], // [{ tier: "high"|"low", walking, walkT, seed }], front = index 0
+    departing: [], // [{ tier, seed, t }] cosmetic walk-off-and-fade only — never touches fillCells/mechanics
     fillCells: 0,
     fillTargetCells: 0,
     totalCells: BLOCK_GRID_COLS * BLOCK_GRID_ROWS,
+    justFilledIdx: -1,
+    justFilledAt: 0,
     nextPlacementAt: 0,
     hammerPhase: 0,
     lastKnownEHs: HASHRATE_SPEED_LO,
     debugHammerPeriodMs: null,
     chain: [], // real block heights, oldest first
     tipHeight: null,
+    lastBlockAt: null, // wall-clock ms of the most recent real block-found event (or seeded once from /v1/blocks)
     found: null, // { startedAt, height } while a block-found sequence plays
     particles: [],
   };
@@ -445,6 +468,17 @@
     };
   }
 
+  function shadeHex(hex, percent) {
+    const m = /^#([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return hex;
+    const num = parseInt(m[1], 16);
+    const amt = Math.round(2.55 * percent);
+    const r = clamp(((num >> 16) & 0xff) + amt, 0, 255);
+    const g = clamp(((num >> 8) & 0xff) + amt, 0, 255);
+    const b = clamp((num & 0xff) + amt, 0, 255);
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+  }
+
   function loadSceneColors() {
     const cs = getComputedStyle(document.documentElement);
     const pick = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
@@ -456,6 +490,8 @@
       textDim: pick("--text-dim", "#8a8a8a"),
       textFaint: pick("--text-faint", "#565656"),
       accent: pick("--accent", "#f7931a"),
+      green: pick("--green", "#2ecc71"),
+      red: pick("--red", "#e94e4e"),
     };
   }
 
@@ -484,7 +520,10 @@
     for (let i = 0; i < count; i++) {
       const rate = nb && nb.feeRange ? feeRateForQueueIndex(i, count, nb.feeRange) : null;
       const tier = threshold != null && rate != null && rate >= threshold ? "high" : "low";
-      queue.push({ tier, walking: false, walkT: 0 });
+      // seed is fixed at creation (from the build-time loop index), not the
+      // figure's current array index — stays stable as figures ahead of it
+      // get shifted out, so its look doesn't flicker as the queue drains.
+      queue.push({ tier, walking: false, walkT: 0, seed: i });
     }
     scene.queue = queue;
   }
@@ -515,6 +554,7 @@
 
   function triggerBlockFound(height) {
     console.debug(`[chief-fees] block found: ${height}`);
+    scene.lastBlockAt = Date.now();
     scene.found = { startedAt: performance.now(), height };
     spawnFoundParticles(BLOCK_BOX.x + BLOCK_BOX.w / 2, BLOCK_BOX.y + BLOCK_BOX.h / 2);
     scene.chain.push(height);
@@ -555,6 +595,36 @@
       console.error("[chief-fees] pollTipHeight failed:", err);
       setDot("scene", false);
     }
+  }
+
+  // One-time fetch (the only new network call in this pass) so the waiting
+  // label reads a real elapsed time immediately on page load instead of
+  // starting from 0. Never overwrites a value already set by a real
+  // block-found event that beat this fetch to the punch.
+  async function seedLastBlockTimestamp() {
+    try {
+      const blocks = await fetchJSON(API.blocksList);
+      const latest = Array.isArray(blocks) ? blocks[0] : null;
+      if (latest && Number.isFinite(latest.timestamp) && scene.lastBlockAt === null) {
+        scene.lastBlockAt = latest.timestamp * 1000;
+        if (scene.reducedMotion) renderSceneFrame(performance.now());
+      }
+    } catch (err) {
+      console.error("[chief-fees] seedLastBlockTimestamp failed:", err);
+    }
+  }
+
+  function minutesSinceLastBlock() {
+    return scene.lastBlockAt === null ? null : Math.max(0, Math.floor((Date.now() - scene.lastBlockAt) / 60000));
+  }
+
+  function isImpatient() {
+    return state.nextBlock ? state.nextBlock.fillPct >= FILL_PCT_IMPATIENT_THRESHOLD : false;
+  }
+
+  function impatienceLevel(mins) {
+    if (!isImpatient()) return 0;
+    return clamp(((mins ?? 0) - 10) / 20, 0, 1);
   }
 
   function placementIntervalMs(fillPct) {
@@ -604,11 +674,24 @@
         const front = scene.queue[0];
         front.walkT += dt / WALK_DURATION_MS;
         if (front.walkT >= 1) {
-          scene.queue.shift();
+          // Mechanics unchanged: shift + fillCells++ + next-placement timing
+          // happen at exactly the same moment as before. The push into
+          // `departing` is purely cosmetic bookkeeping layered on top.
+          const departed = scene.queue.shift();
           scene.fillCells = Math.min(scene.totalCells, scene.fillCells + 1);
+          scene.justFilledIdx = scene.fillCells - 1;
+          scene.justFilledAt = now;
+          scene.departing.push({ tier: departed.tier, seed: departed.seed, t: 0 });
           scene.nextPlacementAt = now + placementIntervalMs(state.nextBlock ? state.nextBlock.fillPct : 0);
         }
       }
+    }
+
+    if (scene.departing.length) {
+      scene.departing = scene.departing.filter((d) => d.t < 1);
+      scene.departing.forEach((d) => {
+        d.t += dt / LEAVE_DURATION_MS;
+      });
     }
 
     if (scene.particles.length) {
@@ -621,42 +704,128 @@
     }
   }
 
-  function drawPixelFigure(ctx, footX, footY, color) {
-    const x = Math.round(footX);
-    const y = Math.round(footY);
-    ctx.fillStyle = color;
-    ctx.fillRect(x - 1, y - 3, 1, 3);
-    ctx.fillRect(x, y - 3, 1, 3);
-    ctx.fillRect(x - 1, y - 7, 2, 4);
-    ctx.fillRect(x - 1, y - 9, 2, 2);
-    ctx.fillRect(x - 3, y - 8, 2, 2); // carried block
+  // Small humanoid sprite, ~8 wide x 12-13 tall including cap/carried block,
+  // all rect-based. `opts.legOffset` (0|1) picks between the two walk/idle
+  // leg frames; `opts.headTurn` nudges head+cap 1px for the impatient tell.
+  function drawHumanFrame(ctx, footX, footY, opts) {
+    const fx = Math.round(footX);
+    const fy = Math.round(footY);
+    const headOffset = opts.headTurn ? 1 : 0;
+
+    const leftLegH = opts.legOffset === 1 ? 3 : 4;
+    const rightLegH = opts.legOffset === 1 ? 4 : 3;
+    ctx.fillStyle = opts.bodyColor;
+    ctx.fillRect(fx - 2, fy - leftLegH, 2, leftLegH);
+    ctx.fillRect(fx, fy - rightLegH, 2, rightLegH);
+
+    ctx.fillRect(fx - 2, fy - 8, 4, 4); // torso
+
+    if (opts.hasBeard) {
+      ctx.fillStyle = opts.beardColor;
+      ctx.fillRect(fx - 1 + headOffset, fy - 8, 2, 1);
+    }
+
+    ctx.fillStyle = opts.headColor;
+    ctx.fillRect(fx - 1 + headOffset, fy - 10, 3, 2);
+
+    ctx.fillStyle = opts.capColor;
+    ctx.fillRect(fx - 2 + headOffset, fy - 11, 4, 2);
+
+    if (opts.carryColor) {
+      ctx.fillStyle = opts.carryColor;
+      ctx.fillRect(fx - 1, fy - 13, 2, 2); // tx block carried above the head
+    }
   }
 
-  function drawMinerFigure(ctx, footX, footY, colors, swing) {
+  // Deterministic per-figure look from a stable seed (fixed at creation in
+  // rebuildQueue, never from Math.random) so the queue reads as a crowd of
+  // distinct people rather than clones, without flickering frame to frame.
+  function queueFigureTraits(seed) {
+    return {
+      hasBeard: seed % 3 === 0,
+      capColorIdx: scene.capColors.length ? seed % scene.capColors.length : 0,
+    };
+  }
+
+  function drawQueueFigure(ctx, colors, fig, x, footY, now) {
+    const bodyColor = fig.tier === "high" ? colors.accent : colors.textFaint;
+    const traits = queueFigureTraits(fig.seed);
+    const capColor = scene.capColors[traits.capColorIdx] || colors.text;
+
+    let legOffset = 0;
+    let headTurn = false;
+    let alpha = 1;
+    let carryColor = bodyColor;
+
+    if (fig.walking) {
+      legOffset = Math.floor(fig.walkT * 6) % 2;
+    } else if (fig.leaving) {
+      legOffset = Math.floor(fig.t * 6) % 2;
+      alpha = 1 - fig.t;
+      carryColor = null; // already delivered its tx
+    } else {
+      const level = impatienceLevel(minutesSinceLastBlock());
+      if (level > 0) {
+        const tapPeriod = IMPATIENT_TAP_PERIOD_LO_MS - (IMPATIENT_TAP_PERIOD_LO_MS - IMPATIENT_TAP_PERIOD_HI_MS) * level;
+        legOffset = Math.floor(now / tapPeriod + fig.seed * 0.5) % 2;
+        headTurn = Math.floor(now / (1400 - level * 700) + fig.seed) % 5 === 0;
+      } else {
+        legOffset = Math.floor(now / IDLE_BOB_PERIOD_MS + fig.seed * 0.37) % 2;
+      }
+    }
+
+    ctx.globalAlpha = alpha;
+    drawHumanFrame(ctx, x, footY, {
+      bodyColor,
+      headColor: colors.text,
+      beardColor: colors.textDim,
+      capColor,
+      hasBeard: traits.hasBeard,
+      legOffset,
+      headTurn,
+      carryColor,
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  function drawMinerFigure(ctx, footX, footY, colors, phase) {
     const x = Math.round(footX);
     const y = Math.round(footY);
+    const down = phase >= 0.5;
+
     ctx.fillStyle = colors.text;
-    ctx.fillRect(x - 1, y - 3, 1, 3);
-    ctx.fillRect(x, y - 3, 1, 3);
-    ctx.fillRect(x - 1, y - 7, 2, 4);
-    ctx.fillRect(x - 1, y - 9, 2, 2);
-    const hy = Math.round(y - 6 - swing * 3);
+    ctx.fillRect(x - 2, y - 4, 2, 4);
+    ctx.fillRect(x, y - 4, 2, 4);
+    ctx.fillRect(x - 2, y - 9, 4, 5); // body
+    ctx.fillRect(x - 2, y - 12, 4, 3); // helmet
+    ctx.fillStyle = colors.accent;
+    ctx.fillRect(x - 1, y - 12, 1, 1); // lamp
+
     ctx.strokeStyle = colors.textDim;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x + 1, y - 6);
-    ctx.lineTo(x + 2, hy + 1);
+    ctx.moveTo(x + 2, y - 8);
+    if (down) ctx.lineTo(x + 5, y - 3);
+    else ctx.lineTo(x + 5, y - 12);
     ctx.stroke();
-    ctx.fillStyle = colors.accent;
-    ctx.fillRect(x + 1, hy, 3, 2);
+
+    ctx.fillStyle = colors.textFaint;
+    if (down) ctx.fillRect(x + 4, y - 4, 2, 2);
+    else ctx.fillRect(x + 4, y - 13, 2, 2);
+
+    // brief impact spark right as the pickaxe strikes, not the whole down-half
+    if (phase >= 0.5 && phase < 0.58) {
+      ctx.fillStyle = colors.accent;
+      ctx.fillRect(x + 5, y - 2, 1, 1);
+      ctx.fillRect(x + 6, y - 3, 1, 1);
+    }
   }
 
   function drawGround(ctx, colors) {
-    ctx.strokeStyle = colors.borderSoft;
-    ctx.beginPath();
-    ctx.moveTo(0, GROUND_Y + 0.5);
-    ctx.lineTo(LOGICAL_W, GROUND_Y + 0.5);
-    ctx.stroke();
+    for (let x = 0; x < LOGICAL_W; x += 2) {
+      ctx.fillStyle = GROUND_PATTERN[x] ? colors.borderSoft : colors.border;
+      ctx.fillRect(x, GROUND_Y, 2, GROUND_TEXTURE_H);
+    }
     ctx.strokeStyle = colors.border;
     ctx.beginPath();
     ctx.moveTo(0, SCENE_BAND_H + 0.5);
@@ -664,9 +833,11 @@
     ctx.stroke();
   }
 
-  function drawQueue(ctx, colors) {
+  function drawQueue(ctx, colors, now) {
     const n = scene.queue.length;
-    for (let i = 0; i < n; i++) {
+    // Back-to-front so nearer (lower-index) figures correctly overlap the
+    // ones behind them in the line instead of being painted over.
+    for (let i = n - 1; i >= 0; i--) {
       const fig = scene.queue[i];
       let x;
       if (fig.walking) {
@@ -677,9 +848,44 @@
         x = QUEUE_LANE.xEnd - i * FIGURE_SPACING;
         if (x < QUEUE_LANE.xStart) continue;
       }
-      const color = fig.tier === "high" ? colors.accent : colors.textFaint;
-      drawPixelFigure(ctx, x, GROUND_Y, color);
+      drawQueueFigure(ctx, colors, fig, x, GROUND_Y, now);
     }
+  }
+
+  function drawDeparting(ctx, colors, now) {
+    scene.departing.forEach((d) => {
+      const startX = BLOCK_BOX.x + BLOCK_BOX.w + 2;
+      const endX = MINER_LANE.xStart - 2;
+      const x = startX + (endX - startX) * easeOutCubic(d.t);
+      drawQueueFigure(ctx, colors, { tier: d.tier, seed: d.seed, leaving: true, t: d.t }, x, GROUND_Y, now);
+    });
+  }
+
+  function cellColor(colors, idx) {
+    const variant = idx % 3;
+    if (variant === 0) return shadeHex(colors.accent, -10);
+    if (variant === 1) return colors.accent;
+    return shadeHex(colors.accent, 12);
+  }
+
+  function drawScaffold(ctx, colors) {
+    const { x, y, w, h } = BLOCK_BOX;
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 2.5, y - 2.5, w + 5, h + 5);
+    ctx.strokeStyle = colors.borderSoft;
+    const struts = [
+      [x - 2, y - 2, x + 2, y + 2],
+      [x + w + 2, y - 2, x + w - 2, y + 2],
+      [x - 2, y + h + 2, x + 2, y + h - 2],
+      [x + w + 2, y + h + 2, x + w - 2, y + h - 2],
+    ];
+    struts.forEach(([x1, y1, x2, y2]) => {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    });
   }
 
   function drawBlock(ctx, colors, now) {
@@ -687,16 +893,22 @@
       drawFoundBlock(ctx, colors, now);
       return;
     }
-    const { x, y, w, h } = BLOCK_BOX;
-    ctx.strokeStyle = colors.accent;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    const { x, y } = BLOCK_BOX;
+    drawScaffold(ctx, colors);
     for (let r = 0; r < BLOCK_GRID_ROWS; r++) {
       for (let c = 0; c < BLOCK_GRID_COLS; c++) {
         const idx = r * BLOCK_GRID_COLS + c;
+        const cx = x + c * CELL_W + 1;
+        const cy = y + r * CELL_H + 1;
+        const cw = CELL_W - 2;
+        const ch = CELL_H - 2;
         if (idx < scene.fillCells) {
-          ctx.fillStyle = colors.accent;
-          ctx.fillRect(x + c * CELL_W + 1, y + r * CELL_H + 1, CELL_W - 2, CELL_H - 2);
+          const justPlaced = idx === scene.justFilledIdx && now - scene.justFilledAt < 250;
+          ctx.fillStyle = justPlaced ? colors.text : cellColor(colors, idx);
+          ctx.fillRect(cx, cy, cw, ch);
+        } else {
+          ctx.strokeStyle = colors.borderSoft;
+          ctx.strokeRect(cx + 0.5, cy + 0.5, Math.max(1, cw - 1), Math.max(1, ch - 1));
         }
       }
     }
@@ -732,8 +944,7 @@
     for (let i = 0; i < MINER_COUNT; i++) {
       const x = MINER_LANE.xStart + (span * (i + 0.5)) / MINER_COUNT;
       const phase = (scene.hammerPhase + i * 0.17) % 1;
-      const swing = Math.sin(phase * Math.PI * 2);
-      drawMinerFigure(ctx, x, GROUND_Y, colors, swing);
+      drawMinerFigure(ctx, x, GROUND_Y, colors, phase);
     }
   }
 
@@ -747,6 +958,19 @@
     ctx.globalAlpha = 1;
   }
 
+  function drawBitcoinGlyph(ctx, colors, ix, iy) {
+    // ~5x7 rect-based ₿ mark, debossed into the block in the background
+    // shade so it reads clearly against the orange fill at this tiny scale.
+    const gx = ix + 3;
+    const gy = iy + 2;
+    ctx.fillStyle = colors.bgElevated;
+    ctx.fillRect(gx, gy - 1, 1, 1);
+    ctx.fillRect(gx, gy, 1, 5);
+    ctx.fillRect(gx, gy + 5, 1, 1);
+    ctx.fillRect(gx + 1, gy, 2, 2);
+    ctx.fillRect(gx + 1, gy + 3, 2, 2);
+  }
+
   function drawChainIcons(ctx, colors) {
     const n = scene.chain.length;
     for (let i = 0; i < n; i++) {
@@ -757,9 +981,14 @@
       ctx.fillRect(x, CHAIN_Y, CHAIN_ICON, CHAIN_ICON);
       ctx.strokeStyle = colors.bgElevated;
       ctx.strokeRect(x + 0.5, CHAIN_Y + 0.5, CHAIN_ICON - 1, CHAIN_ICON - 1);
+      drawBitcoinGlyph(ctx, colors, x, CHAIN_Y);
     }
   }
 
+  // Chain grows leftward from CHAIN_RIGHT_X (a fixed right margin); the
+  // label itself is clamped to the canvas by its own measured width so a
+  // 6-digit height can never fall outside the visible area, regardless of
+  // canvas scale.
   function drawChainLabels(ctx, colors) {
     const n = scene.chain.length;
     if (n === 0) return;
@@ -770,11 +999,28 @@
     const labelCount = Math.min(n, 4);
     for (let k = 0; k < labelCount; k++) {
       const height = scene.chain[n - 1 - k];
-      const x = (chainSlotX(k) + CHAIN_ICON / 2) * scale;
-      const y = (CHAIN_Y + CHAIN_ICON + 8) * scale;
-      if (x < 0 || x > scene.canvas.width) continue;
-      ctx.fillText(String(height), x, y);
+      const label = String(height);
+      const rawX = (chainSlotX(k) + CHAIN_ICON / 2) * scale;
+      const halfW = ctx.measureText(label).width / 2 + 2;
+      const x = clamp(rawX, halfW, scene.canvas.width - halfW);
+      const topY = (CHAIN_Y + CHAIN_ICON + 2) * scale;
+      ctx.fillText(label, x, topY);
     }
+  }
+
+  function drawWaitingLabel(ctx, colors) {
+    if (scene.found) return;
+    const mins = minutesSinceLastBlock();
+    if (mins === null) return;
+    const scale = scene.canvas.width / LOGICAL_W;
+    ctx.font = `${Math.max(7, Math.round(4.2 * scale))}px ui-monospace, monospace`;
+    ctx.fillStyle = colors.textDim;
+    ctx.textAlign = "center";
+    const label = `waiting for miner · ${mins} min since last block`;
+    const rawX = (BLOCK_BOX.x + BLOCK_BOX.w / 2) * scale;
+    const halfW = ctx.measureText(label).width / 2 + 2;
+    const x = clamp(rawX, halfW, scene.canvas.width - halfW);
+    ctx.fillText(label, x, 0);
   }
 
   function renderSceneFrame(now) {
@@ -787,8 +1033,9 @@
     octx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
 
     drawGround(octx, colors);
-    drawQueue(octx, colors);
+    drawQueue(octx, colors, now);
     drawBlock(octx, colors, now);
+    drawDeparting(octx, colors, now);
     drawMiners(octx, colors);
     drawParticles(octx, colors);
     drawChainIcons(octx, colors);
@@ -798,6 +1045,8 @@
     ctx.clearRect(0, 0, scene.canvas.width, scene.canvas.height);
     ctx.drawImage(scene.off, 0, 0, LOGICAL_W, LOGICAL_H, 0, 0, scene.canvas.width, scene.canvas.height);
 
+    ctx.textBaseline = "top";
+    drawWaitingLabel(ctx, colors);
     drawChainLabels(ctx, colors);
   }
 
@@ -849,6 +1098,7 @@
     scene.offCtx = scene.off.getContext("2d");
     scene.offCtx.imageSmoothingEnabled = false;
     scene.colors = loadSceneColors();
+    scene.capColors = [scene.colors.text, scene.colors.textDim, scene.colors.accent, scene.colors.green, scene.colors.red];
 
     const reducedMotionMQ = window.matchMedia("(prefers-reduced-motion: reduce)");
     scene.reducedMotion = reducedMotionMQ.matches;
@@ -875,6 +1125,7 @@
     setInterval(() => {
       pollTipHeight().catch((err) => console.error("[chief-fees] periodic tip-height poll failed:", err));
     }, TIP_POLL_MS);
+    seedLastBlockTimestamp();
 
     if (!scene.reducedMotion) startSceneLoop();
     else renderSceneFrame(performance.now());

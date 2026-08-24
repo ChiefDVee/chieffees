@@ -181,7 +181,7 @@ main {
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 240 / 64;
+  aspect-ratio: 240 / 76;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
