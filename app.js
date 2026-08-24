@@ -495,7 +495,13 @@
   const MINER_LANE = { xStart: 168, xEnd: 234 };
   const CHAIN_BLOCK_SIZE = 11;
   const CHAIN_Y = SCENE_BAND_H + 1; // sits right on the rail, no big gap below the ground
-  const CHAIN_SPACING = 20;
+  const CHAIN_SPACING_BASE = 20; // floor — actual spacing grows to fit the widest visible label, see resolveChainLayout()
+  const CHAIN_LABEL_GAP = 4; // logical px of breathing room on each side of a label before spacing grows further
+  const CHAIN_LABEL_FONT_MULT = 6; // "normal" tier — matches the multiplier used since the sprite rewrite
+  const CHAIN_LABEL_FONT_MULT_SMALL = 4.5; // one step down, tried only if normal can't fit CHAIN_MIN_VISIBLE_LABELS
+  const CHAIN_LABEL_FONT_MIN_PX = 9;
+  const CHAIN_LABEL_FONT_MIN_PX_SMALL = 7;
+  const CHAIN_MIN_VISIBLE_LABELS = 3;
   const CHAIN_RIGHT_X = LOGICAL_W - 28; // wide margin so a 6-digit height label never clips the canvas edge
   const MAX_CHAIN = 8;
   const WALK_DURATION_MS = 900;
@@ -544,6 +550,9 @@
     lastKnownEHs: HASHRATE_SPEED_LO,
     debugHammerPeriodMs: null,
     chain: [], // real block heights, oldest first
+    chainSpacing: 20, // resolved each frame in resolveChainLayout() — kept ≥ label width so adjacent labels never merge
+    chainFontPx: 9,
+    chainTruncate: false, // last-resort: older labels show "…" + last 3 digits
     tipHeight: null,
     lastBlockAt: null, // wall-clock ms of the most recent real block-found event (or seeded once from /v1/blocks)
     found: null, // { startedAt, height } while a block-found sequence plays
@@ -593,7 +602,7 @@
   }
 
   function chainSlotX(indexFromRight) {
-    return CHAIN_RIGHT_X - indexFromRight * CHAIN_SPACING;
+    return CHAIN_RIGHT_X - indexFromRight * scene.chainSpacing;
   }
 
   // Maps a queue position to an approximate real fee-rate by interpolating
@@ -1029,20 +1038,65 @@
     }
   }
 
-  // Chain grows leftward from CHAIN_RIGHT_X (a fixed right margin); the
-  // label itself is clamped to the canvas by its own measured width so a
-  // 6-digit height can never fall outside the visible area, at any scale.
+  // How many block slots fit between the canvas's left edge and the fixed
+  // right anchor at a given spacing — used to decide whether a font tier
+  // keeps at least CHAIN_MIN_VISIBLE_LABELS legible.
+  function chainSlotsThatFit(spacing) {
+    return Math.floor(CHAIN_RIGHT_X / spacing) + 1;
+  }
+
+  // Measures the widest currently-visible height at a candidate font tier
+  // and returns the spacing that guarantees no two labels can ever render
+  // into each other — this is what makes CHAIN_SPACING self-adjusting for
+  // 7-digit heights too, not just today's 6-digit ones.
+  function measureChainTier(ctx, scale, fontMult, fontMinPx) {
+    const fontPx = Math.max(fontMinPx, Math.round(fontMult * scale));
+    ctx.font = `${fontPx}px ui-monospace, monospace`;
+    const n = scene.chain.length;
+    const labelCount = Math.min(n, 4);
+    let widestPx = 0;
+    for (let k = 0; k < labelCount; k++) {
+      const w = ctx.measureText(String(scene.chain[n - 1 - k])).width;
+      if (w > widestPx) widestPx = w;
+    }
+    const widestLogical = widestPx / scale;
+    const spacing = Math.max(CHAIN_SPACING_BASE, widestLogical + CHAIN_LABEL_GAP);
+    return { fontPx, spacing };
+  }
+
+  // Resolves font size + spacing for this frame's chain strip, in
+  // preference order: (1) normal font with spacing grown to fit the widest
+  // label, (2) one font size down if that's what it takes to keep at least
+  // 3 blocks visible, (3) if even that can't fit 3, fall back to truncated
+  // labels on everything but the newest block. Runs on the real canvas
+  // context with the real font, so the decision exactly matches what gets
+  // drawn — no separate approximation to drift out of sync.
+  function resolveChainLayout(ctx, scale) {
+    const normal = measureChainTier(ctx, scale, CHAIN_LABEL_FONT_MULT, CHAIN_LABEL_FONT_MIN_PX);
+    if (chainSlotsThatFit(normal.spacing) >= CHAIN_MIN_VISIBLE_LABELS) {
+      return { fontPx: normal.fontPx, spacing: normal.spacing, truncate: false };
+    }
+    const small = measureChainTier(ctx, scale, CHAIN_LABEL_FONT_MULT_SMALL, CHAIN_LABEL_FONT_MIN_PX_SMALL);
+    return { fontPx: small.fontPx, spacing: small.spacing, truncate: chainSlotsThatFit(small.spacing) < CHAIN_MIN_VISIBLE_LABELS };
+  }
+
+  // Chain grows leftward from CHAIN_RIGHT_X (a fixed right margin). Spacing
+  // and font come from resolveChainLayout() (already resolved earlier this
+  // frame, before the icons were positioned) so labels and blocks always
+  // agree; each label is additionally clamped to the canvas by its own
+  // measured width so it can never fall outside the visible area either.
   function drawChainLabels(ctx, colors) {
     const n = scene.chain.length;
     if (n === 0) return;
     const scale = scene.pixelScale;
-    ctx.font = `${Math.max(9, Math.round(6 * scale))}px ui-monospace, monospace`;
+    ctx.font = `${scene.chainFontPx}px ui-monospace, monospace`;
     ctx.fillStyle = colors.textFaint;
     ctx.textAlign = "center";
     const labelCount = Math.min(n, 4);
     for (let k = 0; k < labelCount; k++) {
       const height = scene.chain[n - 1 - k];
-      const label = String(height);
+      const full = String(height);
+      const label = scene.chainTruncate && k > 0 ? `…${full.slice(-3)}` : full;
       const rawX = (chainSlotX(k) + CHAIN_BLOCK_SIZE / 2) * scale;
       const halfW = ctx.measureText(label).width / 2 + 2;
       const x = clamp(rawX, halfW, scene.canvas.width - halfW);
@@ -1085,6 +1139,15 @@
     if (!scene.ctx || !scene.offCtx || !scene.colors) return;
     const octx = scene.offCtx;
     const colors = scene.colors;
+
+    // Resolved first, on the real canvas context, so chainSlotX() already
+    // has this frame's spacing before the icons below are positioned with it.
+    if (scene.chain.length > 0) {
+      const layout = resolveChainLayout(scene.ctx, scene.pixelScale);
+      scene.chainSpacing = layout.spacing;
+      scene.chainFontPx = layout.fontPx;
+      scene.chainTruncate = layout.truncate;
+    }
 
     octx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
     octx.fillStyle = colors.bgElevated;
