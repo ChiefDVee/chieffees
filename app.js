@@ -379,25 +379,124 @@
   // animation phase offsets — use Math.random(); queue length/composition,
   // block fill, hammer speed and the block-found event itself never do.
 
+  // ---- Exact pixel-art sprites (verbatim data, not procedural) ----
+  // Palette: fixed retro colors, independent of the site's CSS theme —
+  // this is the complete color source for every sprite below. "." = transparent.
+  const SPRITE_PALETTE = {
+    K: "#f7931a", k: "#b56a10", // carried block: high fee + shade
+    G: "#8a8a8a", g: "#5d5d5d", // carried block: low fee + shade
+    C: "#d9484a", c: "#4caf50", O: "#f7931a", // cap colors: red / green / orange
+    S: "#d8a878", E: "#1a1a1a", B: "#c8c8c8",
+    J: "#6f6f6f", Z: "#1f1f1f", z: "#333333",
+    L: "#4a4a4a", F: "#2b2b2b",
+    H: "#f7931a", h: "#c4740f", W: "#ffffff",
+    P: "#8b5a2b", X: "#c9c9c9", "*": "#ffd54f", "+": "#fff3c4",
+    D: "#0d0d0d", R: "#f7931a", r: "#c4740f",
+  };
+
+  const QUEUE_FIGURE = [
+    "..KKKK..",
+    "..kKKk..",
+    "........",
+    ".CCCCCC.",
+    "..SSSS..",
+    "..ESSE..",
+    "..SSSS..",
+    ".JJJJJJ.",
+    ".JJJJJJ.",
+    "..JJJJ..",
+    "..L..L..",
+    "..L..L..",
+    "..F..F..",
+  ];
+
+  // Exactly one figure per queue renders as Chief — see rebuildQueue().
+  const CHIEF_FIGURE = [
+    "..KKKK..",
+    "..kKKk..",
+    "........",
+    "..SSSS..",
+    "..SSSS..",
+    "..ESSE..",
+    "..BBBB..",
+    ".ZBBBBZ.",
+    ".ZZZZZZ.",
+    "..ZzzZ..",
+    "..L..L..",
+    "..L..L..",
+    "..F..F..",
+  ];
+
+  const MINER_UP = [
+    "........XX..",
+    ".......XXP..",
+    "......PP....",
+    ".....PP.....",
+    ".HHHH.......",
+    ".HWhH.......",
+    "..SSSS......",
+    "..ESSE......",
+    ".JJJJJS.....",
+    ".JJJJJ......",
+    ".JJJJ.......",
+    "..L..L......",
+    "..F..F......",
+  ];
+
+  const MINER_DOWN = [
+    "............",
+    "............",
+    "............",
+    "............",
+    ".HHHH.......",
+    ".HWhH.......",
+    "..SSSS......",
+    "..ESSE......",
+    ".JJJJJS.....",
+    ".JJJJJPP....",
+    ".JJJJ..PP...",
+    "..L..L..XX*.",
+    "..F..F..X+*.",
+  ];
+
+  const CHAIN_BLOCK = [
+    "RRRRRRRRRRR",
+    "RrDDDDDDDrR",
+    "RDDKKKKDDDR",
+    "RDDK..KK.DR",
+    "RDDKKKKDDDR",
+    "RDDK..KK.DR",
+    "RDDKKKKDDDR",
+    "RDD.KK.DDDR",
+    "RDDDDDDDDDR",
+    "RrDDDDDDDrR",
+    "RRRRRRRRRRR",
+  ];
+
+  const LEG_ROW_START = 10; // row where "..L..L.." begins in both humanoid matrices
+  const LEFT_LEG_COL = 2;
+  const RIGHT_LEG_COL = 5;
+  const CAP_COLOR_KEYS = ["C", "c", "O"]; // red / green / orange
+
+  // ---- Scene geometry ----
   const LOGICAL_W = 240;
-  const LOGICAL_H = 76; // taller than the main scene band alone needs, so the
-  // chain strip has real headroom below each height label — see CHAIN_Y below
-  const SCENE_BAND_H = 46; // 0..46 = main scene, 46..76 = chain strip
-  const GROUND_Y = 44;
-  const GROUND_TEXTURE_H = SCENE_BAND_H - GROUND_Y;
+  const LOGICAL_H = 66; // chain strip sits right under the ground now — no empty basement band
+  const GROUND_Y = 42;
+  const GROUND_TEXTURE_H = 2;
+  const SCENE_BAND_H = GROUND_Y + GROUND_TEXTURE_H; // 44 — thin rail divider right after the dirt strip
   const BLOCK_GRID_COLS = 8;
   const BLOCK_GRID_ROWS = 6;
-  const BLOCK_BOX = { x: 108, y: 6, w: 64, h: 36 };
+  const BLOCK_BOX = { x: 102, y: 11, w: 56, h: 30 }; // ~15% smaller than the previous 64x36, evenly re-centered
   const CELL_W = BLOCK_BOX.w / BLOCK_GRID_COLS;
   const CELL_H = BLOCK_BOX.h / BLOCK_GRID_ROWS;
-  const QUEUE_LANE = { xStart: 6, xEnd: 100 };
-  const FIGURE_SPACING = 5.5; // wide enough that individual sprites read as people, not a solid bar
+  const QUEUE_LANE = { xStart: 6, xEnd: 98 };
+  const FIGURE_SPACING = 6;
   const MINER_COUNT = 4;
-  const MINER_LANE = { xStart: BLOCK_BOX.x + BLOCK_BOX.w + 10, xEnd: LOGICAL_W - 8 };
-  const CHAIN_Y = 52;
-  const CHAIN_ICON = 10;
-  const CHAIN_SPACING = 22;
-  const CHAIN_RIGHT_X = LOGICAL_W - 30; // wide margin so a 6-digit height label never clips the canvas edge
+  const MINER_LANE = { xStart: 168, xEnd: 234 };
+  const CHAIN_BLOCK_SIZE = 11;
+  const CHAIN_Y = SCENE_BAND_H + 1; // sits right on the rail, no big gap below the ground
+  const CHAIN_SPACING = 20;
+  const CHAIN_RIGHT_X = LOGICAL_W - 28; // wide margin so a 6-digit height label never clips the canvas edge
   const MAX_CHAIN = 8;
   const WALK_DURATION_MS = 900;
   const LEAVE_DURATION_MS = 500; // cosmetic walk-away-and-fade after delivery, decoupled from placement timing
@@ -407,8 +506,8 @@
   const HASHRATE_SPEED_LO = 500; // EH/s -> slow hammer swing
   const HASHRATE_SPEED_HI = 1000; // EH/s -> frantic hammer swing
   const IDLE_BOB_PERIOD_MS = 900;
-  const IMPATIENT_TAP_PERIOD_LO_MS = 700; // foot-tap cadence right as fill crosses the impatience threshold
-  const IMPATIENT_TAP_PERIOD_HI_MS = 350; // foot-tap cadence once escalated (far past the threshold)
+  const IMPATIENT_TAP_PERIOD_LO_MS = 700; // bob cadence right as fill crosses the impatience threshold
+  const IMPATIENT_TAP_PERIOD_HI_MS = 350; // bob cadence once escalated (far past the threshold)
   const FILL_PCT_IMPATIENT_THRESHOLD = 95;
 
   // Deterministic "dirt" pattern for the ground strip, computed once at
@@ -427,7 +526,7 @@
     off: null,
     offCtx: null,
     colors: null,
-    capColors: [],
+    pixelScale: 1, // integer logical->device scale, recomputed in resizeSceneCanvas()
     reducedMotion: false,
     running: false,
     rafId: null,
@@ -490,8 +589,6 @@
       textDim: pick("--text-dim", "#8a8a8a"),
       textFaint: pick("--text-faint", "#565656"),
       accent: pick("--accent", "#f7931a"),
-      green: pick("--green", "#2ecc71"),
-      red: pick("--red", "#e94e4e"),
     };
   }
 
@@ -516,6 +613,10 @@
     const nb = state.nextBlock;
     const count = clamp(nb ? nb.txCount ?? 0 : 0, 0, scene.maxQueue);
     const threshold = state.fees ? state.fees.halfHourFee : null;
+    // Chief's queue slot is deterministic from the real block height, so he
+    // moves to a different spot in line each time a new block is found —
+    // not random, and exactly one per queue (none if the queue is empty).
+    const chiefIdx = count > 0 && scene.tipHeight !== null ? scene.tipHeight % count : -1;
     const queue = [];
     for (let i = 0; i < count; i++) {
       const rate = nb && nb.feeRange ? feeRateForQueueIndex(i, count, nb.feeRange) : null;
@@ -523,7 +624,7 @@
       // seed is fixed at creation (from the build-time loop index), not the
       // figure's current array index — stays stable as figures ahead of it
       // get shifted out, so its look doesn't flicker as the queue drains.
-      queue.push({ tier, walking: false, walkT: 0, seed: i });
+      queue.push({ tier, walking: false, walkT: 0, seed: i, isChief: i === chiefIdx });
     }
     scene.queue = queue;
   }
@@ -681,7 +782,7 @@
           scene.fillCells = Math.min(scene.totalCells, scene.fillCells + 1);
           scene.justFilledIdx = scene.fillCells - 1;
           scene.justFilledAt = now;
-          scene.departing.push({ tier: departed.tier, seed: departed.seed, t: 0 });
+          scene.departing.push({ tier: departed.tier, seed: departed.seed, isChief: departed.isChief, t: 0 });
           scene.nextPlacementAt = now + placementIntervalMs(state.nextBlock ? state.nextBlock.fillPct : 0);
         }
       }
@@ -704,121 +805,79 @@
     }
   }
 
-  // Small humanoid sprite, ~8 wide x 12-13 tall including cap/carried block,
-  // all rect-based. `opts.legOffset` (0|1) picks between the two walk/idle
-  // leg frames; `opts.headTurn` nudges head+cap 1px for the impatient tell.
-  function drawHumanFrame(ctx, footX, footY, opts) {
-    const fx = Math.round(footX);
-    const fy = Math.round(footY);
-    const headOffset = opts.headTurn ? 1 : 0;
-
-    const leftLegH = opts.legOffset === 1 ? 3 : 4;
-    const rightLegH = opts.legOffset === 1 ? 4 : 3;
-    ctx.fillStyle = opts.bodyColor;
-    ctx.fillRect(fx - 2, fy - leftLegH, 2, leftLegH);
-    ctx.fillRect(fx, fy - rightLegH, 2, rightLegH);
-
-    ctx.fillRect(fx - 2, fy - 8, 4, 4); // torso
-
-    if (opts.hasBeard) {
-      ctx.fillStyle = opts.beardColor;
-      ctx.fillRect(fx - 1 + headOffset, fy - 8, 2, 1);
-    }
-
-    ctx.fillStyle = opts.headColor;
-    ctx.fillRect(fx - 1 + headOffset, fy - 10, 3, 2);
-
-    ctx.fillStyle = opts.capColor;
-    ctx.fillRect(fx - 2 + headOffset, fy - 11, 4, 2);
-
-    if (opts.carryColor) {
-      ctx.fillStyle = opts.carryColor;
-      ctx.fillRect(fx - 1, fy - 13, 2, 2); // tx block carried above the head
+  // Blits one exact sprite matrix, 1 matrix-char = 1 logical-canvas-pixel.
+  // `overrides` remaps a char to a different palette color (fee-tier/cap
+  // substitution). `hideCol`/`hideFromRow` skip one column from that row
+  // downward — the walk-cycle "hide a leg" technique.
+  function drawSprite(ctx, matrix, originX, originY, overrides, hideCol, hideFromRow) {
+    const ox = Math.round(originX);
+    const oy = Math.round(originY);
+    for (let row = 0; row < matrix.length; row++) {
+      const line = matrix[row];
+      const skipCol = hideCol != null && hideFromRow != null && row >= hideFromRow ? hideCol : -1;
+      for (let col = 0; col < line.length; col++) {
+        if (col === skipCol) continue;
+        const ch = line[col];
+        if (ch === ".") continue;
+        const color = (overrides && overrides[ch]) || SPRITE_PALETTE[ch];
+        if (!color) continue;
+        ctx.fillStyle = color;
+        ctx.fillRect(ox + col, oy + row, 1, 1);
+      }
     }
   }
 
-  // Deterministic per-figure look from a stable seed (fixed at creation in
-  // rebuildQueue, never from Math.random) so the queue reads as a crowd of
-  // distinct people rather than clones, without flickering frame to frame.
-  function queueFigureTraits(seed) {
-    return {
-      hasBeard: seed % 3 === 0,
-      capColorIdx: scene.capColors.length ? seed % scene.capColors.length : 0,
-    };
+  // Deterministic per-figure palette swap from a stable seed (fixed at
+  // creation in rebuildQueue, never from Math.random) so the queue reads as
+  // a crowd of distinct people rather than clones.
+  function figureOverrides(fig) {
+    const overrides = {};
+    if (fig.tier === "low") {
+      overrides.K = SPRITE_PALETTE.G;
+      overrides.k = SPRITE_PALETTE.g;
+    }
+    if (!fig.isChief) {
+      overrides.C = SPRITE_PALETTE[CAP_COLOR_KEYS[fig.seed % CAP_COLOR_KEYS.length]];
+    }
+    return overrides;
   }
 
-  function drawQueueFigure(ctx, colors, fig, x, footY, now) {
-    const bodyColor = fig.tier === "high" ? colors.accent : colors.textFaint;
-    const traits = queueFigureTraits(fig.seed);
-    const capColor = scene.capColors[traits.capColorIdx] || colors.text;
-
-    let legOffset = 0;
-    let headTurn = false;
+  function drawQueueFigure(ctx, fig, x, footY, now) {
+    const matrix = fig.isChief ? CHIEF_FIGURE : QUEUE_FIGURE;
+    const overrides = figureOverrides(fig);
+    let originX = x - 4;
+    let originY = footY - matrix.length;
+    let hideCol = null;
     let alpha = 1;
-    let carryColor = bodyColor;
 
-    if (fig.walking) {
-      legOffset = Math.floor(fig.walkT * 6) % 2;
-    } else if (fig.leaving) {
-      legOffset = Math.floor(fig.t * 6) % 2;
-      alpha = 1 - fig.t;
-      carryColor = null; // already delivered its tx
+    if (fig.walking || fig.leaving) {
+      const t = fig.walking ? fig.walkT : fig.t;
+      // walk = alternate hiding the left/right leg column
+      hideCol = Math.floor(t * 6) % 2 === 0 ? LEFT_LEG_COL : RIGHT_LEG_COL;
+      if (fig.leaving) alpha = 1 - fig.t;
     } else {
       const level = impatienceLevel(minutesSinceLastBlock());
       if (level > 0) {
-        const tapPeriod = IMPATIENT_TAP_PERIOD_LO_MS - (IMPATIENT_TAP_PERIOD_LO_MS - IMPATIENT_TAP_PERIOD_HI_MS) * level;
-        legOffset = Math.floor(now / tapPeriod + fig.seed * 0.5) % 2;
-        headTurn = Math.floor(now / (1400 - level * 700) + fig.seed) % 5 === 0;
+        // impatient = faster bob + occasional 1px horizontal shift
+        const bobPeriod = IMPATIENT_TAP_PERIOD_LO_MS - (IMPATIENT_TAP_PERIOD_LO_MS - IMPATIENT_TAP_PERIOD_HI_MS) * level;
+        if (Math.floor(now / bobPeriod + fig.seed * 0.5) % 2 === 1) originY += 1;
+        if (Math.floor(now / (900 - level * 400) + fig.seed) % 6 === 0) {
+          originX += fig.seed % 2 === 0 ? 1 : -1;
+        }
       } else {
-        legOffset = Math.floor(now / IDLE_BOB_PERIOD_MS + fig.seed * 0.37) % 2;
+        // idle bob = draw the figure 1px lower on the alternate frame
+        if (Math.floor(now / IDLE_BOB_PERIOD_MS + fig.seed * 0.37) % 2 === 1) originY += 1;
       }
     }
 
     ctx.globalAlpha = alpha;
-    drawHumanFrame(ctx, x, footY, {
-      bodyColor,
-      headColor: colors.text,
-      beardColor: colors.textDim,
-      capColor,
-      hasBeard: traits.hasBeard,
-      legOffset,
-      headTurn,
-      carryColor,
-    });
+    drawSprite(ctx, matrix, originX, originY, overrides, hideCol, LEG_ROW_START);
     ctx.globalAlpha = 1;
   }
 
-  function drawMinerFigure(ctx, footX, footY, colors, phase) {
-    const x = Math.round(footX);
-    const y = Math.round(footY);
-    const down = phase >= 0.5;
-
-    ctx.fillStyle = colors.text;
-    ctx.fillRect(x - 2, y - 4, 2, 4);
-    ctx.fillRect(x, y - 4, 2, 4);
-    ctx.fillRect(x - 2, y - 9, 4, 5); // body
-    ctx.fillRect(x - 2, y - 12, 4, 3); // helmet
-    ctx.fillStyle = colors.accent;
-    ctx.fillRect(x - 1, y - 12, 1, 1); // lamp
-
-    ctx.strokeStyle = colors.textDim;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x + 2, y - 8);
-    if (down) ctx.lineTo(x + 5, y - 3);
-    else ctx.lineTo(x + 5, y - 12);
-    ctx.stroke();
-
-    ctx.fillStyle = colors.textFaint;
-    if (down) ctx.fillRect(x + 4, y - 4, 2, 2);
-    else ctx.fillRect(x + 4, y - 13, 2, 2);
-
-    // brief impact spark right as the pickaxe strikes, not the whole down-half
-    if (phase >= 0.5 && phase < 0.58) {
-      ctx.fillStyle = colors.accent;
-      ctx.fillRect(x + 5, y - 2, 1, 1);
-      ctx.fillRect(x + 6, y - 3, 1, 1);
-    }
+  function drawMinerFigure(ctx, footX, footY, phase) {
+    const matrix = phase >= 0.5 ? MINER_DOWN : MINER_UP; // swing frame swap, spark pixels baked into MINER_DOWN
+    drawSprite(ctx, matrix, footX - 2, footY - matrix.length, null, null, null);
   }
 
   function drawGround(ctx, colors) {
@@ -833,7 +892,7 @@
     ctx.stroke();
   }
 
-  function drawQueue(ctx, colors, now) {
+  function drawQueue(ctx, now) {
     const n = scene.queue.length;
     // Back-to-front so nearer (lower-index) figures correctly overlap the
     // ones behind them in the line instead of being painted over.
@@ -848,16 +907,16 @@
         x = QUEUE_LANE.xEnd - i * FIGURE_SPACING;
         if (x < QUEUE_LANE.xStart) continue;
       }
-      drawQueueFigure(ctx, colors, fig, x, GROUND_Y, now);
+      drawQueueFigure(ctx, fig, x, GROUND_Y, now);
     }
   }
 
-  function drawDeparting(ctx, colors, now) {
+  function drawDeparting(ctx, now) {
     scene.departing.forEach((d) => {
       const startX = BLOCK_BOX.x + BLOCK_BOX.w + 2;
       const endX = MINER_LANE.xStart - 2;
       const x = startX + (endX - startX) * easeOutCubic(d.t);
-      drawQueueFigure(ctx, colors, { tier: d.tier, seed: d.seed, leaving: true, t: d.t }, x, GROUND_Y, now);
+      drawQueueFigure(ctx, { tier: d.tier, seed: d.seed, isChief: d.isChief, leaving: true, t: d.t }, x, GROUND_Y, now);
     });
   }
 
@@ -926,25 +985,27 @@
       ctx.fillRect(x, y, w, h);
       ctx.globalAlpha = 1;
     } else {
+      // Position-only slide at the sprite's native size — a fixed-resolution
+      // pixel matrix doesn't resize cleanly frame to frame, so the "shrink"
+      // from the old rect-based version is gone; only the destination moves.
       const slideT = (elapsed - FOUND_FLASH_MS) / FOUND_SLIDE_MS;
       const eased = easeOutCubic(slideT);
+      const startX = x + w / 2 - CHAIN_BLOCK_SIZE / 2;
+      const startY = y + h / 2 - CHAIN_BLOCK_SIZE / 2;
       const targetX = chainSlotX(0);
       const targetY = CHAIN_Y;
-      const curX = x + (targetX - x) * eased;
-      const curY = y + (targetY - y) * eased;
-      const curW = w + (CHAIN_ICON - w) * eased;
-      const curH = h + (CHAIN_ICON - h) * eased;
-      ctx.fillStyle = colors.accent;
-      ctx.fillRect(curX, curY, Math.max(2, curW), Math.max(2, curH));
+      const curX = startX + (targetX - startX) * eased;
+      const curY = startY + (targetY - startY) * eased;
+      drawSprite(ctx, CHAIN_BLOCK, curX, curY, null, null, null);
     }
   }
 
-  function drawMiners(ctx, colors) {
+  function drawMiners(ctx) {
     const span = MINER_LANE.xEnd - MINER_LANE.xStart;
     for (let i = 0; i < MINER_COUNT; i++) {
       const x = MINER_LANE.xStart + (span * (i + 0.5)) / MINER_COUNT;
       const phase = (scene.hammerPhase + i * 0.17) % 1;
-      drawMinerFigure(ctx, x, GROUND_Y, colors, phase);
+      drawMinerFigure(ctx, x, GROUND_Y, phase);
     }
   }
 
@@ -958,41 +1019,23 @@
     ctx.globalAlpha = 1;
   }
 
-  function drawBitcoinGlyph(ctx, colors, ix, iy) {
-    // ~5x7 rect-based ₿ mark, debossed into the block in the background
-    // shade so it reads clearly against the orange fill at this tiny scale.
-    const gx = ix + 3;
-    const gy = iy + 2;
-    ctx.fillStyle = colors.bgElevated;
-    ctx.fillRect(gx, gy - 1, 1, 1);
-    ctx.fillRect(gx, gy, 1, 5);
-    ctx.fillRect(gx, gy + 5, 1, 1);
-    ctx.fillRect(gx + 1, gy, 2, 2);
-    ctx.fillRect(gx + 1, gy + 3, 2, 2);
-  }
-
-  function drawChainIcons(ctx, colors) {
+  function drawChainIcons(ctx) {
     const n = scene.chain.length;
     for (let i = 0; i < n; i++) {
       const indexFromRight = n - 1 - i;
       const x = chainSlotX(indexFromRight);
-      if (x < -CHAIN_ICON || x > LOGICAL_W) continue;
-      ctx.fillStyle = colors.accent;
-      ctx.fillRect(x, CHAIN_Y, CHAIN_ICON, CHAIN_ICON);
-      ctx.strokeStyle = colors.bgElevated;
-      ctx.strokeRect(x + 0.5, CHAIN_Y + 0.5, CHAIN_ICON - 1, CHAIN_ICON - 1);
-      drawBitcoinGlyph(ctx, colors, x, CHAIN_Y);
+      if (x < -CHAIN_BLOCK_SIZE || x > LOGICAL_W) continue;
+      drawSprite(ctx, CHAIN_BLOCK, x, CHAIN_Y, null, null, null);
     }
   }
 
   // Chain grows leftward from CHAIN_RIGHT_X (a fixed right margin); the
   // label itself is clamped to the canvas by its own measured width so a
-  // 6-digit height can never fall outside the visible area, regardless of
-  // canvas scale.
+  // 6-digit height can never fall outside the visible area, at any scale.
   function drawChainLabels(ctx, colors) {
     const n = scene.chain.length;
     if (n === 0) return;
-    const scale = scene.canvas.width / LOGICAL_W;
+    const scale = scene.pixelScale;
     ctx.font = `${Math.max(9, Math.round(6 * scale))}px ui-monospace, monospace`;
     ctx.fillStyle = colors.textFaint;
     ctx.textAlign = "center";
@@ -1000,27 +1043,42 @@
     for (let k = 0; k < labelCount; k++) {
       const height = scene.chain[n - 1 - k];
       const label = String(height);
-      const rawX = (chainSlotX(k) + CHAIN_ICON / 2) * scale;
+      const rawX = (chainSlotX(k) + CHAIN_BLOCK_SIZE / 2) * scale;
       const halfW = ctx.measureText(label).width / 2 + 2;
       const x = clamp(rawX, halfW, scene.canvas.width - halfW);
-      const topY = (CHAIN_Y + CHAIN_ICON + 2) * scale;
+      const topY = (CHAIN_Y + CHAIN_BLOCK_SIZE + 2) * scale;
       ctx.fillText(label, x, topY);
     }
   }
 
+  // Fixed top-center position with a dark backdrop plate + 1px border so the
+  // text stays legible over the ground/queue, and never drifts over sprites
+  // the way the block-anchored version used to.
   function drawWaitingLabel(ctx, colors) {
     if (scene.found) return;
     const mins = minutesSinceLastBlock();
     if (mins === null) return;
-    const scale = scene.canvas.width / LOGICAL_W;
-    ctx.font = `${Math.max(7, Math.round(4.2 * scale))}px ui-monospace, monospace`;
-    ctx.fillStyle = colors.textDim;
+    const scale = scene.pixelScale;
+    const fontPx = Math.max(8, Math.round(4.4 * scale));
+    ctx.font = `${fontPx}px ui-monospace, monospace`;
     ctx.textAlign = "center";
     const label = `waiting for miner · ${mins} min since last block`;
-    const rawX = (BLOCK_BOX.x + BLOCK_BOX.w / 2) * scale;
-    const halfW = ctx.measureText(label).width / 2 + 2;
-    const x = clamp(rawX, halfW, scene.canvas.width - halfW);
-    ctx.fillText(label, x, 0);
+    const textW = ctx.measureText(label).width;
+    const padX = 3 * scale;
+    const padY = Math.max(1, Math.round(scale));
+    const boxW = textW + padX * 2;
+    const boxH = fontPx + padY * 2;
+    const cx = (LOGICAL_W / 2) * scale;
+    const boxX = clamp(cx - boxW / 2, 0, scene.canvas.width - boxW);
+
+    ctx.fillStyle = colors.bgElevated;
+    ctx.fillRect(boxX, 0, boxW, boxH);
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(boxX + 0.5, 0.5, boxW - 1, boxH - 1);
+
+    ctx.fillStyle = colors.textDim;
+    ctx.fillText(label, boxX + boxW / 2, padY);
   }
 
   function renderSceneFrame(now) {
@@ -1033,12 +1091,12 @@
     octx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
 
     drawGround(octx, colors);
-    drawQueue(octx, colors, now);
+    drawQueue(octx, now);
     drawBlock(octx, colors, now);
-    drawDeparting(octx, colors, now);
-    drawMiners(octx, colors);
+    drawDeparting(octx, now);
+    drawMiners(octx);
     drawParticles(octx, colors);
-    drawChainIcons(octx, colors);
+    drawChainIcons(octx);
 
     const ctx = scene.ctx;
     ctx.imageSmoothingEnabled = false;
@@ -1079,12 +1137,17 @@
   function resizeSceneCanvas() {
     if (!scene.canvas) return;
     const wrap = scene.canvas.parentElement;
-    const cssWidth = wrap.clientWidth || 300;
+    const wrapWidth = wrap.clientWidth || 300;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const cssHeight = cssWidth * (LOGICAL_H / LOGICAL_W);
-    scene.canvas.width = Math.max(1, Math.round(cssWidth * dpr));
-    scene.canvas.height = Math.max(1, Math.round(cssHeight * dpr));
-    scene.maxQueue = cssWidth < 480 ? 10 : cssWidth < 800 ? 20 : 30;
+    // Integer-only logical->device scale so every sprite pixel lands on a
+    // whole device pixel at any width/DPR combination — no fractional blur.
+    const scale = Math.max(1, Math.floor((wrapWidth * dpr) / LOGICAL_W));
+    scene.pixelScale = scale;
+    scene.canvas.width = LOGICAL_W * scale;
+    scene.canvas.height = LOGICAL_H * scale;
+    scene.canvas.style.width = `${(LOGICAL_W * scale) / dpr}px`;
+    scene.canvas.style.height = `${(LOGICAL_H * scale) / dpr}px`;
+    scene.maxQueue = wrapWidth < 480 ? 10 : wrapWidth < 800 ? 20 : 30;
     renderSceneFrame(performance.now());
   }
 
@@ -1098,7 +1161,6 @@
     scene.offCtx = scene.off.getContext("2d");
     scene.offCtx.imageSmoothingEnabled = false;
     scene.colors = loadSceneColors();
-    scene.capColors = [scene.colors.text, scene.colors.textDim, scene.colors.accent, scene.colors.green, scene.colors.red];
 
     const reducedMotionMQ = window.matchMedia("(prefers-reduced-motion: reduce)");
     scene.reducedMotion = reducedMotionMQ.matches;

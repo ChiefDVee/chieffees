@@ -171,6 +171,8 @@ main {
 
 .scene-canvas-wrap {
   width: 100%;
+  display: flex;
+  justify-content: center;
   overflow: hidden;
   border-radius: 8px;
   background: var(--bg-elevated);
@@ -179,9 +181,9 @@ main {
 
 .scene-canvas {
   display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 240 / 76;
+  /* width/height are set inline by app.js to an integer logical->device
+     scale, then centered by the flex wrapper — no CSS stretch here, that
+     would reintroduce fractional scaling and blur the pixel art. */
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
