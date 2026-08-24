@@ -146,6 +146,52 @@ main {
   gap: 24px;
 }
 
+/* Mining scene */
+.scene-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 18px 14px;
+}
+
+.scene-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.scene-head h2 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.scene-canvas-wrap {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+}
+
+.scene-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 240 / 64;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.scene-foot {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
 /* Fee cards */
 .fee-section {
   display: grid;
