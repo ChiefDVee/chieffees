@@ -46,7 +46,12 @@
     calcSats: document.getElementById("calc-sats"),
     calcEur: document.getElementById("calc-eur"),
     presetBtns: Array.from(document.querySelectorAll(".preset-btn")),
+    lastUpdated: document.getElementById("last-updated"),
   };
+
+  function fmtTime(d) {
+    return d.toLocaleTimeString(undefined, { hour12: false });
+  }
 
   function setDot(key, ok) {
     document.querySelectorAll(`[data-status-dot="${key}"]`).forEach((dot) => {
@@ -86,6 +91,7 @@
       els.blockHeight.textContent = fmtInt(height);
       setDot("height", true);
     } catch (err) {
+      console.error("[chief-fees] updateBlockHeight failed:", err);
       els.blockHeight.textContent = "—";
       setDot("height", false);
     }
@@ -120,6 +126,7 @@
       setDot("fees", true);
       runCalculator();
     } catch (err) {
+      console.error("[chief-fees] updateFees failed:", err);
       els.feeFast.textContent = "—";
       els.feeMedium.textContent = "—";
       els.feeSlow.textContent = "—";
@@ -155,6 +162,7 @@
 
       setDot("nextblock", true);
     } catch (err) {
+      console.error("[chief-fees] updateNextBlock failed:", err);
       els.nbMedian.textContent = "—";
       els.nbTxCount.textContent = "—";
       els.nbRange.textContent = "—";
@@ -236,6 +244,7 @@
 
       setDot("hashrate", true);
     } catch (err) {
+      console.error("[chief-fees] updateHashrate failed:", err);
       els.hashrateValue.textContent = "—";
       setDot("hashrate", false);
     }
@@ -282,6 +291,7 @@
 
       setDot("difficulty", true);
     } catch (err) {
+      console.error("[chief-fees] updateDifficulty failed:", err);
       els.diffRemainingBlocks.textContent = "—";
       els.diffChange.textContent = "—";
       els.diffDate.textContent = "—";
@@ -299,6 +309,7 @@
       setDot("prices", true);
       runCalculator();
     } catch (err) {
+      console.error("[chief-fees] updatePrices failed:", err);
       state.prices = null;
       setDot("prices", false);
       runCalculator();
@@ -355,20 +366,35 @@
 
   // ---- Refresh cycle ----
   async function refreshAll() {
-    await Promise.allSettled([
-      updateBlockHeight(),
-      updateFees(),
-      updateNextBlock(),
-      updateHashrate(),
-      updateDifficulty(),
-      updatePrices(),
-    ]);
+    console.debug(`[chief-fees] refresh cycle start ${new Date().toISOString()}`);
+    try {
+      await Promise.allSettled([
+        updateBlockHeight(),
+        updateFees(),
+        updateNextBlock(),
+        updateHashrate(),
+        updateDifficulty(),
+        updatePrices(),
+      ]);
+      const now = new Date();
+      if (els.lastUpdated) {
+        els.lastUpdated.textContent = fmtTime(now);
+      }
+      console.debug(`[chief-fees] refresh cycle complete ${now.toISOString()}`);
+    } catch (err) {
+      // Promise.allSettled itself never rejects, but this guards against
+      // any unexpected error in the DOM update below so a single bad tick
+      // can never silently stop future refreshes.
+      console.error("[chief-fees] refresh cycle failed unexpectedly:", err);
+    }
   }
 
   function init() {
     initCalculator();
     refreshAll();
-    setInterval(refreshAll, REFRESH_MS);
+    setInterval(() => {
+      refreshAll().catch((err) => console.error("[chief-fees] periodic refresh failed:", err));
+    }, REFRESH_MS);
 
     window.addEventListener("resize", () => {
       // redraw sparkline from last known hashrate fetch on resize
