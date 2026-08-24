@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CHIEF FEES — Bitcoin Fees &amp; Mempool Dashboard</title>
+<meta name="description" content="Live Bitcoin fee rates, mempool status, hashrate and difficulty adjustment dashboard.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="bg-grid"></div>
+
+<header class="site-header">
+  <div class="brand">
+    <span class="brand-mark">₿</span>
+    <span class="brand-text">CHIEF<span class="brand-accent">FEES</span></span>
+  </div>
+  <div class="header-status">
+    <div class="block-height" id="block-height-box">
+      <span class="label">BLOCK HEIGHT</span>
+      <span class="value mono" id="block-height">—</span>
+      <span class="dot" id="block-height-dot"></span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- Fee cards -->
+  <section class="fee-section" aria-label="Recommended fees">
+    <div class="fee-card" data-tier="fast">
+      <div class="fee-card-glow"></div>
+      <div class="fee-card-head">
+        <span class="fee-icon">⚡</span>
+        <span class="fee-title">FAST</span>
+        <span class="dot" data-status-dot="fees"></span>
+      </div>
+      <div class="fee-value mono" id="fee-fast">—</div>
+      <div class="fee-unit">sat/vB</div>
+      <div class="fee-sub">~10 min · next block</div>
+    </div>
+
+    <div class="fee-card" data-tier="medium">
+      <div class="fee-card-glow"></div>
+      <div class="fee-card-head">
+        <span class="fee-icon">◐</span>
+        <span class="fee-title">MEDIUM</span>
+        <span class="dot" data-status-dot="fees"></span>
+      </div>
+      <div class="fee-value mono" id="fee-medium">—</div>
+      <div class="fee-unit">sat/vB</div>
+      <div class="fee-sub">~30 min · 3 blocks</div>
+    </div>
+
+    <div class="fee-card" data-tier="slow">
+      <div class="fee-card-glow"></div>
+      <div class="fee-card-head">
+        <span class="fee-icon">🐢</span>
+        <span class="fee-title">SLOW</span>
+        <span class="dot" data-status-dot="fees"></span>
+      </div>
+      <div class="fee-value mono" id="fee-slow">—</div>
+      <div class="fee-unit">sat/vB</div>
+      <div class="fee-sub">~1 hr+ · economy</div>
+    </div>
+  </section>
+
+  <div class="grid-2">
+
+    <!-- Next block -->
+    <section class="panel" aria-label="Next block projection">
+      <div class="panel-head">
+        <h2>NEXT BLOCK</h2>
+        <span class="dot" data-status-dot="nextblock"></span>
+      </div>
+      <div class="next-block-stats">
+        <div class="stat">
+          <span class="stat-label">Median Fee</span>
+          <span class="stat-value mono" id="nb-median">—</span>
+          <span class="stat-unit">sat/vB</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Transactions</span>
+          <span class="stat-value mono" id="nb-txcount">—</span>
+          <span class="stat-unit">txs</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Fee Range</span>
+          <span class="stat-value mono" id="nb-range">—</span>
+          <span class="stat-unit">sat/vB</span>
+        </div>
+      </div>
+      <div class="fill-bar-wrap">
+        <div class="fill-bar-label">
+          <span>Block fill</span>
+          <span class="mono" id="nb-fill-pct">—</span>
+        </div>
+        <div class="fill-bar-track">
+          <div class="fill-bar-fg" id="nb-fill-bar" style="width:0%"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Hashrate -->
+    <section class="panel" aria-label="Network hashrate">
+      <div class="panel-head">
+        <h2>HASHRATE</h2>
+        <span class="dot" data-status-dot="hashrate"></span>
+      </div>
+      <div class="hashrate-main">
+        <span class="hashrate-value mono" id="hashrate-value">—</span>
+        <span class="hashrate-unit">EH/s</span>
+      </div>
+      <canvas id="hashrate-sparkline" class="sparkline" height="60"></canvas>
+      <div class="hashrate-foot">
+        <span>3 day average</span>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="grid-2">
+
+    <!-- Difficulty adjustment -->
+    <section class="panel" aria-label="Difficulty adjustment">
+      <div class="panel-head">
+        <h2>DIFFICULTY ADJUSTMENT</h2>
+        <span class="dot" data-status-dot="difficulty"></span>
+      </div>
+      <div class="diff-body">
+        <div class="diff-ring-wrap">
+          <svg class="diff-ring" viewBox="0 0 120 120">
+            <circle class="diff-ring-bg" cx="60" cy="60" r="52"></circle>
+            <circle class="diff-ring-fg" id="diff-ring-fg" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="diff-ring-center">
+            <span class="mono" id="diff-remaining-blocks">—</span>
+            <span class="diff-ring-sublabel">blocks left</span>
+          </div>
+        </div>
+        <div class="diff-stats">
+          <div class="stat">
+            <span class="stat-label">Estimated change</span>
+            <span class="stat-value mono" id="diff-change">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Estimated retarget date</span>
+            <span class="stat-value mono" id="diff-date">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Progress</span>
+            <span class="stat-value mono" id="diff-progress">—</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Calculator -->
+    <section class="panel" aria-label="Fee calculator">
+      <div class="panel-head">
+        <h2>SAT/VB CALCULATOR</h2>
+        <span class="dot" data-status-dot="prices"></span>
+      </div>
+      <div class="calc-body">
+        <label class="calc-label" for="calc-size">Transaction size (vBytes)</label>
+        <input type="number" id="calc-size" class="calc-input mono" value="140" min="1" step="1">
+
+        <div class="preset-row">
+          <button type="button" class="preset-btn" data-size="140">140 vB — 1-in-2-out segwit</button>
+          <button type="button" class="preset-btn" data-size="110">110 vB — taproot</button>
+          <button type="button" class="preset-btn" data-size="250">250 vB — legacy</button>
+        </div>
+
+        <label class="calc-label" for="calc-tier">Fee tier</label>
+        <select id="calc-tier" class="calc-select mono">
+          <option value="fast">Fast</option>
+          <option value="medium" selected>Medium</option>
+          <option value="slow">Slow</option>
+        </select>
+
+        <div class="calc-output">
+          <div class="calc-result">
+            <span class="calc-result-label">Total fee</span>
+            <span class="calc-result-value mono" id="calc-sats">— sats</span>
+          </div>
+          <div class="calc-result">
+            <span class="calc-result-label">≈ EUR</span>
+            <span class="calc-result-value mono" id="calc-eur">— €</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+</main>
+
+<footer class="site-footer">
+  <span>Data via <span class="mono">mempool.space</span> API · refreshes every 30s</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
