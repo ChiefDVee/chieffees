@@ -570,6 +570,14 @@ main {
   border-top: 1px solid var(--border-soft);
 }
 
+.site-footer a {
+  color: inherit;
+}
+
+.site-footer a:hover {
+  color: var(--accent);
+}
+
 /* Responsive */
 @media (max-width: 860px) {
   .grid-2 {
