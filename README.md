@@ -73,8 +73,10 @@ Then visit `http://localhost:8000`.
    - Branch: `main`, folder: `/ (root)`
 3. GitHub Pages serves static sites from **public** repositories for free —
    the repo must be public for Pages to be available at no cost.
-4. The site will be live at `https://chiefdvee.github.io/chieffees/` a minute
-   or two after enabling Pages.
+4. Custom domain: `CNAME` contains `fees.chiefke.com` (DNS: CNAME `fees` →
+   `chiefdvee.github.io` at Porkbun). The site is live at
+   `https://fees.chiefke.com/`; the old `https://chiefdvee.github.io/chieffees/`
+   redirects there. All asset paths are relative, so both roots work.
 
 No CI, no secrets, no server-side code — it's just three static files calling
 a public API directly from the browser.
