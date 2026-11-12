@@ -562,25 +562,6 @@ main {
   color: var(--accent);
 }
 
-/* Footer */
-.site-footer {
-  position: relative;
-  z-index: 1;
-  text-align: center;
-  padding: 20px;
-  font-size: 11px;
-  color: var(--text-faint);
-  border-top: 1px solid var(--border-soft);
-}
-
-.site-footer a {
-  color: inherit;
-}
-
-.site-footer a:hover {
-  color: var(--accent);
-}
-
 /* Responsive */
 @media (max-width: 860px) {
   .grid-2 {
