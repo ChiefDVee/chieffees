@@ -1,20 +1,23 @@
+/* Chief huisstijl: assets/brand/chief-tokens.css (via chief-brand-sync, never edit by hand) loads before this file.
+   Site variables = aliases of --chief-*. Values without an identical token stay literal for now (0 visual diff):
+   --bg-elevated, --bg-card, --border, --border-soft, --text-dim, --text-faint, --accent-soft, --accent-glow, --mono. */
 :root {
-  --bg: #0a0a0a;
+  --bg: var(--chief-bg);
   --bg-elevated: #121212;
   --bg-card: #151515;
   --border: #242424;
   --border-soft: #1c1c1c;
-  --text: #ededed;
+  --text: var(--chief-text);
   --text-dim: #8a8a8a;
   --text-faint: #565656;
-  --accent: #f7931a;
+  --accent: var(--chief-accent);
   --accent-soft: rgba(247, 147, 26, 0.14);
   --accent-glow: rgba(247, 147, 26, 0.45);
-  --green: #2ecc71;
-  --red: #e94e4e;
+  --green: var(--chief-ok);
+  --red: var(--chief-err);
   --mono: "SF Mono", "Menlo", "Consolas", "Roboto Mono", ui-monospace, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  --radius: 14px;
+  --sans: var(--chief-font-body);
+  --radius: var(--chief-radius);
   --transition: 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -82,8 +85,8 @@ body {
   letter-spacing: 0.06em;
 }
 
-.brand-accent {
-  color: var(--accent);
+.name-accent {
+  color: var(--chief-accent);
 }
 
 .header-status {
